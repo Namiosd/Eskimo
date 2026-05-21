@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.env
+
+# Node
+node_modules/
+
+# VS Code
+.vscode/
+
+# Appium / test logs
+*.log
