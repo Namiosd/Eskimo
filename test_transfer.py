@@ -13,6 +13,12 @@ try:
 
 except Exception as e:
     print(f"\n❌ Test Transfer — FAILED: {e}")
+    try:
+        with open("page_source.xml", "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        print("💾 Saved page source to page_source.xml")
+    except Exception as pe:
+        print(f"Could not save page source: {pe}")
 
 finally:
     time.sleep(3)

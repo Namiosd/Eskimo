@@ -30,15 +30,43 @@ def transfer_data(driver, phone=PHONE_NUMBER):
     print("✅ [Action] Đã click Transfer data to anyone section")
 
     # ============================================================
-    # BƯỚC 2: Click Transfer button → vào Data Dashboard
+    # BƯỚC 2: Tìm và click vào nút Transfer của gói cước hợp lệ (tự động cuộn xuống nếu cần)
     # ============================================================
-    transfer_btn = wait.until(
-        EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txt_transfer_image"))
-    )
-    assert transfer_btn.is_displayed(), "❌ Không thấy Transfer button!"
-    print("✅ [Check UI] Transfer button hiển thị — màn hình Data Dashboard")
-    transfer_btn.click()
-    print("✅ [Action] Đã click Transfer button")
+    time.sleep(2)  # Chờ danh sách gói cước tải xong
+    try:
+        transfer_btn = None
+        max_swipes = 5
+        
+        for i in range(max_swipes):
+            try:
+                # Kiểm tra xem nút Transfer có xuất hiện chưa
+                btn = driver.find_element(AppiumBy.ID, "travel.eskimo.esim.uat:id/txt_transfer_image")
+                if btn.is_displayed():
+                    transfer_btn = btn
+                    break
+            except:
+                pass
+            
+            # Nếu chưa thấy, thực hiện vuốt từ dưới lên trên (cuộn màn hình xuống)
+            print(f"ℹ️ Chưa tìm thấy nút Transfer, đang cuộn màn hình xuống (lượt {i+1}/{max_swipes})...")
+            size = driver.get_window_size()
+            start_x = size['width'] / 2
+            start_y = int(size['height'] * 0.75)  # Vuốt từ dưới (75% chiều cao)
+            end_x = size['width'] / 2
+            end_y = int(size['height'] * 0.25)    # Lên trên (25% chiều cao)
+            
+            driver.swipe(start_x, start_y, end_x, end_y, 1000)
+            time.sleep(1.5)  # Đợi danh sách cuộn xong ổn định
+            
+        if transfer_btn is None:
+            raise Exception("Không tìm thấy gói cước nào có thể transfer (kể cả sau khi đã cuộn hết danh sách)!")
+            
+        print("✅ [Check UI] Đã tìm thấy gói cước có thể transfer")
+        transfer_btn.click()
+        print("✅ [Action] Đã click nút Transfer của gói cước")
+        
+    except Exception as e:
+        raise Exception(f"Lỗi khi tìm gói cước để transfer: {e}")
 
     # ============================================================
     # BƯỚC 3: Click Transfer icon → vào màn hình Transfer Data
@@ -67,7 +95,7 @@ def transfer_data(driver, phone=PHONE_NUMBER):
     # BƯỚC 5: Click country code
     # ============================================================
     country_code = wait.until(
-        EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/code_selection"))
+        EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
     )
     assert country_code.is_displayed(), "❌ Không thấy country code section!"
     print("✅ [Check UI] Country code section hiển thị")

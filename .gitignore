@@ -13,3 +13,7 @@ node_modules/
 
 # Appium / test logs
 *.log
+
+# Debug files
+page_source.xml
+*.png

@@ -12,6 +12,8 @@ import time
 APPIUM_URL = "http://127.0.0.1:4723"
 PHONE_NUMBER = "372217312"
 OTP = "1234"
+COUNTRY_SEARCH = "Vietnam"
+
 
 desired_caps = {
     "platformName": "Android",
@@ -42,6 +44,42 @@ def create_driver():
     driver = webdriver.Remote(APPIUM_URL, options=options)
     print("✅ Kết nối emulator thành công!")
     return driver
+
+
+def handle_welcome_popup(driver):
+    """Xử lý tắt bottom sheet 'Welcome / Refer a friend' nếu nó xuất hiện sau khi login."""
+    try:
+        # Chờ tối đa 5 giây xem bottom sheet có xuất hiện không
+        wait = WebDriverWait(driver, 5)
+        popup_present = wait.until(
+            EC.presence_of_element_located((AppiumBy.XPATH, "//*[contains(@text, 'Welcome') or contains(@text, 'Refer a friend')]"))
+        )
+        if popup_present:
+            print("ℹ️ Phát hiện popup Welcome/Refer a friend")
+            # Danh sách các locator có thể là nút Close (X)
+            close_locators = [
+                (AppiumBy.ID, "travel.eskimo.esim.uat:id/img_close"),
+                (AppiumBy.ID, "travel.eskimo.esim.uat:id/btn_close"),
+                (AppiumBy.ID, "travel.eskimo.esim.uat:id/iv_close"),
+                # Thử tìm các ImageView có thuộc tính clickable=true nằm trong bottom sheet
+                (AppiumBy.XPATH, "//android.widget.FrameLayout[@resource-id='travel.eskimo.esim.uat:id/design_bottom_sheet']//android.widget.ImageView[@clickable='true']"),
+                # Hoặc ImageView nằm ngang hàng với text "Welcome"
+                (AppiumBy.XPATH, "//*[contains(@text, 'Welcome')]/preceding-sibling::android.widget.ImageView"),
+                (AppiumBy.XPATH, "//*[contains(@text, 'Welcome')]/following-sibling::android.widget.ImageView")
+            ]
+            for locator in close_locators:
+                try:
+                    close_btn = driver.find_element(*locator)
+                    if close_btn.is_displayed():
+                        close_btn.click()
+                        print("✅ [Action] Đã click nút Close (X) để tắt popup")
+                        time.sleep(1)
+                        return
+                except:
+                    continue
+            print("⚠️ Không tìm thấy nút Close (X) bằng các locator mặc định")
+    except:
+        print("ℹ️ Không thấy popup Welcome/Refer a friend xuất hiện, bỏ qua")
 
 
 def login(driver, phone=PHONE_NUMBER, otp=OTP):
@@ -101,9 +139,46 @@ def login(driver, phone=PHONE_NUMBER, otp=OTP):
     )
     assert phone_screen.is_displayed(), "❌ Không thấy màn hình nhập số điện thoại!"
     print("✅ [Verify] Màn hình nhập số điện thoại hiển thị đúng")
-
+  
     # ============================================================
     # BƯỚC 3: Nhập số điện thoại
+    # ============================================================
+     # ============================================================
+    #  Click country code
+    # ============================================================
+    country_code = wait.until(
+        EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
+    )
+    assert country_code.is_displayed(), "❌ Không thấy country code section!"
+    print("✅ [Check UI] Country code section hiển thị")
+    country_code.click()
+    print("✅ [Action] Đã click country code")
+    time.sleep(2)
+
+    # ============================================================
+    # Search Vietnam
+    # ============================================================
+    search_field = wait.until(
+        EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txtSearch"))
+    )
+    assert search_field.is_displayed(), "❌ Không thấy ô Search Country!"
+    print("✅ [Check UI] Màn hình Country code hiển thị")
+    search_field.send_keys(COUNTRY_SEARCH)
+    print(f"✅ [Action] Đã nhập '{COUNTRY_SEARCH}' vào ô search")
+
+    # ============================================================
+    #  Chọn Vietnam từ danh sách
+    # ============================================================
+    time.sleep(1)
+    vietnam_option = wait.until(
+        EC.element_to_be_clickable((AppiumBy.XPATH,
+            '//android.widget.RelativeLayout[@resource-id="travel.eskimo.esim.uat:id/test"]/android.widget.LinearLayout/android.widget.LinearLayout'))
+    )
+    assert vietnam_option.is_displayed(), "❌ Không thấy Vietnam trong danh sách!"
+    print("✅ [Verify] Màn hình chọn Vietnam hiển thị")
+    vietnam_option.click()
+    print("✅ [Action] Đã chọn Vietnam")
+
     # ============================================================
     # Check UI: field số điện thoại có hiển thị không?
     phone_field = wait.until(
@@ -205,6 +280,11 @@ def login(driver, phone=PHONE_NUMBER, otp=OTP):
         print("ℹ️ Không thấy Android permission popup, bỏ qua")
 
     # ============================================================
+    # Xử lý Welcome Popup (Bottom sheet) nếu có
+    # ============================================================
+    handle_welcome_popup(driver)
+
+    # ============================================================
     # VERIFY CUỐI: Màn hình Home hiển thị = Login thành công
     # ============================================================
     time.sleep(2)
@@ -276,6 +356,7 @@ def login_from_data(driver, phone=PHONE_NUMBER, otp=OTP):
     search_field = wait.until(
         EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txtSearch"))
     )
+    
     assert search_field.is_displayed(), "❌ Không thấy ô Search Country!"
     print("✅ [Check UI] Màn hình Country code hiển thị")
     search_field.send_keys("Vietnam")
@@ -365,6 +446,11 @@ def login_from_data(driver, phone=PHONE_NUMBER, otp=OTP):
         print("✅ [Action] Đã click Allow (Android permission)")
     except:
         print("ℹ️ Không thấy Android permission popup, bỏ qua")
+
+    # ============================================================
+    # Xử lý Welcome Popup (Bottom sheet) nếu có
+    # ============================================================
+    handle_welcome_popup(driver)
 
     # ============================================================
     # VERIFY: Màn hình Home hiển thị = Login thành công
@@ -499,6 +585,11 @@ def login_from_account(driver, phone=PHONE_NUMBER, otp=OTP):
         print("ℹ️ Không thấy Android permission popup, bỏ qua")
 
     # ============================================================
+    # Xử lý Welcome Popup (Bottom sheet) nếu có
+    # ============================================================
+    handle_welcome_popup(driver)
+
+    # ============================================================
     # VERIFY: Màn hình Home hiển thị = Login thành công
     # ============================================================
     time.sleep(2)
@@ -571,6 +662,11 @@ def _complete_login_flow(driver, phone=PHONE_NUMBER, otp=OTP):
         print("✅ [Action] Đã click Allow (Android permission)")
     except:
         print("ℹ️ Không thấy Android permission popup, bỏ qua")
+
+    # ============================================================
+    # Xử lý Welcome Popup (Bottom sheet) nếu có
+    # ============================================================
+    handle_welcome_popup(driver)
 
     time.sleep(2)
     home_tab = wait.until(
