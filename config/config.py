@@ -5,7 +5,12 @@ class TestConfig:
     """Centralized configuration for Eskimo eSIM UAT test automation."""
     
     APPIUM_URL: str = "http://127.0.0.1:4723"
+    API_BASE_URL: str = "https://stage-api.eskimo.travel"
+    COUNTRY_CODE: str = "84"
     PHONE_NUMBER: str = "372217312"
+    SIGNUP_TEST_MOBILE: str = "372217263"
+    SIGNUP_TEST_EMAIL: str = "kieu.signup.auto@yopmail.com"
+    REGISTERED_EMAIL: str = "ahko355@yopmail.com"
     OTP: str = "1234"
     COUNTRY_SEARCH: str = "Vietnam"
     APP_PACKAGE: str = "travel.eskimo.esim.uat"

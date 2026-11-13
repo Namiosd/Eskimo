@@ -196,10 +196,20 @@ def login(driver: webdriver.Remote, phone: str = TestConfig.PHONE_NUMBER, otp: s
                 pass
             return
             
-        elif resource_id in ["travel.eskimo.esim.uat:id/tv_explore_plans", "travel.eskimo.esim.uat:id/btn_claim_offer"]:
-            logger.info("Currently on Guest Onboarding screen. Accessing authentication gate...")
-            claim_btn = wait.until(EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/btn_claim_offer")))
-            claim_btn.click()
+        elif resource_id in [
+            "travel.eskimo.esim.uat:id/txt_login",
+            "travel.eskimo.esim.uat:id/cd_login",
+            "travel.eskimo.esim.uat:id/tv_explore_plans",
+            "travel.eskimo.esim.uat:id/btn_claim_offer",
+        ]:
+            logger.info("Currently on Guest Onboarding screen. Clicking Login button...")
+            login_btn = wait.until(
+                EC.element_to_be_clickable((
+                    AppiumBy.XPATH,
+                    "//*[@resource-id='travel.eskimo.esim.uat:id/cd_login' or @resource-id='travel.eskimo.esim.uat:id/txt_login']"
+                ))
+            )
+            login_btn.click()
             time.sleep(3)
             
         else:

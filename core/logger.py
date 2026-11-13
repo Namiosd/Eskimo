@@ -1,21 +1,4 @@
-import logging
-import sys
+from utils.logger import get_logger
 
-try:
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
-
-# Configure global logger format
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] (%(filename)s:%(lineno)d) - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-logger = logging.getLogger("EskimoUAT")
+# Backward-compatible export used by pages/ and tests/
+logger = get_logger("appium_framework")

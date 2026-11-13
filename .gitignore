@@ -27,3 +27,5 @@ allure-results/
 allure-report/
 *.html
 
+logs
+postman

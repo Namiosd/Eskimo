@@ -1,0 +1,9 @@
+workspace:
+  id: 2f966b57-37bf-4b05-8aa7-8e23f709f087
+
+localResources:
+  specs:
+    - ../postman/specs/Eskimo API/swagger.json
+resourceNameMappings:
+  specs:
+    - ../postman/specs/Eskimo API/swagger.json: Eskimo API
