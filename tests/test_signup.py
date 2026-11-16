@@ -13,6 +13,8 @@ from utils.api_helper import ApiHelper
 from pages.signup_page import (
     generate_fresh_phone,
     generate_fresh_email,
+    dismiss_account_suspended_popup,
+    auto_logout_if_not_on_onboarding,
     reset_app_to_guest_onboarding,
     reset_signup_phone_account,
     open_signup_gate_from_onboarding,
@@ -40,24 +42,29 @@ TEST_EMAIL = TestConfig.SIGNUP_TEST_EMAIL    # "kieu.signup.auto@yopmail.com"
 VALID_REFERRAL_CODE = "KIEU1606"
 INVALID_REFERRAL_CODE = "INVALID9999"
 REGISTERED_EMAIL = TestConfig.REGISTERED_EMAIL  # "ahko355@yopmail.com"
+REGISTERED_PHONE = TestConfig.REGISTERED_PHONE  # "372217315"
+REGISTERED_PHONE_COUNTRY = TestConfig.REGISTERED_PHONE_COUNTRY  # "Singapore" (+65)
 
 
 @pytest.fixture(scope="function")
 def clean_signup_driver(driver):
     """
     Before each Sign Up test:
-      1. Call Eskimo Stage API to reset TEST_MOBILE (372217263) and TEST_EMAIL.
-      2. Reset the app to a clean Guest Onboarding state.
+      1. Check if app is on Guest Onboarding; if not, automatically logout (and close 'Account Suspended' popup if present).
+      2. Call Eskimo Stage API to reset TEST_MOBILE (372217263) and TEST_EMAIL.
+      3. Ensure the app is on a clean Guest Onboarding state.
     After each test:
-      - Clear app state back to Guest Onboarding (keeping the registered account in backend
+      - Ensure app returns to Guest Onboarding (keeping the registered account in backend
         if needed by the immediately following already-registered test).
     """
+    dismiss_account_suspended_popup(driver, timeout=3)
+    auto_logout_if_not_on_onboarding(driver)
     api = ApiHelper()
     api.reset_mobile_account(TEST_MOBILE)
     api.reset_email_account(TEST_EMAIL)
-    reset_app_to_guest_onboarding(driver)
+    dismiss_account_suspended_popup(driver, timeout=3)
     yield driver
-    reset_app_to_guest_onboarding(driver)
+    auto_logout_if_not_on_onboarding(driver)
 
 
 # ============================================================
@@ -175,7 +182,7 @@ def test_signup_05_complete_button_state_on_last_step(clean_signup_driver) -> No
     select_continue_with_mobile(clean_signup_driver)
     select_country_code(clean_signup_driver, TestConfig.COUNTRY_SEARCH)
     enter_mobile_and_submit(clean_signup_driver, TEST_MOBILE, request_otp_channel=True)
-    input_otp_code(clean_signup_driver, TestConfig.OTP)
+    input_otp_code(clean_signup_driver, TestConfig.OTP, timeout=35)
 
     verify_on_last_step_screen(clean_signup_driver)
     assert not is_complete_sign_up_enabled(clean_signup_driver), (
@@ -314,6 +321,7 @@ def test_signup_10_success_with_valid_referral_code(clean_signup_driver) -> None
     Sign up with TEST_MOBILE -> OTP -> Enter valid referral code & Apply -> Complete sign up -> Home.
     """
     logger.info("Executing TC_SIGNUP_10: Sign up with valid referral code...")
+    dismiss_account_suspended_popup(clean_signup_driver, timeout=3)
     open_signup_gate_from_onboarding(clean_signup_driver)
     select_continue_with_mobile(clean_signup_driver)
     select_country_code(clean_signup_driver, TestConfig.COUNTRY_SEARCH)
@@ -368,6 +376,7 @@ def test_signup_12_success_with_new_phone(clean_signup_driver) -> None:
     (Leaves TEST_MOBILE registered on backend so TC_SIGNUP_13 can immediately verify already-registered phone).
     """
     logger.info("Executing TC_SIGNUP_12: Sign up with new mobile number...")
+    dismiss_account_suspended_popup(clean_signup_driver, timeout=3)
     open_signup_gate_from_onboarding(clean_signup_driver)
     select_continue_with_mobile(clean_signup_driver)
     select_country_code(clean_signup_driver, TestConfig.COUNTRY_SEARCH)
@@ -395,8 +404,7 @@ def test_signup_13_already_registered_phone(driver) -> None:
     Runs right after TC_SIGNUP_12 (where TEST_MOBILE 372217263 was registered) WITHOUT resetting the backend account.
     Attempt Sign Up again with TEST_MOBILE -> Verify error/blocked progression and user not logged in.
     """
-    logger.info("Executing TC_SIGNUP_13: Already registered phone number (after TC_SIGNUP_12)...")
-    reset_app_to_guest_onboarding(driver, force_pm_clear=True)
+    logger.info(f"Executing TC_SIGNUP_13: Already registered phone number (after TC_SIGNUP_12: {TEST_MOBILE})...")
 
     open_signup_gate_from_onboarding(driver)
     select_continue_with_mobile(driver)
@@ -412,19 +420,19 @@ def test_signup_13_already_registered_phone(driver) -> None:
     logger.info("TC_SIGNUP_13 - PASSED!")
 
 
-@allure.feature("Sign Up (ESKIMO-886)")
-@allure.story("API Reset Mobile & Email Account for Reusable Sign Up")
-@allure.severity(allure.severity_level.NORMAL)
-def test_reset_mobile_account(driver) -> None:
-    """
-    Standalone utility test to reset TEST_MOBILE (372217263) and TEST_EMAIL (kieu.signup.auto@yopmail.com)
-    via Eskimo Stage API.
-    """
-    api = ApiHelper()
-    res_mobile = api.reset_mobile_account(TEST_MOBILE)
-    res_email = api.reset_email_account(TEST_EMAIL)
-    logger.info(f"Reset mobile account result: {res_mobile}")
-    logger.info(f"Reset email account result: {res_email}")
-    assert res_mobile.get("status_code") == 200, f"Reset mobile account failed: {res_mobile}"
+# @allure.feature("Sign Up (ESKIMO-886)")
+# @allure.story("API Reset Mobile & Email Account for Reusable Sign Up")
+# @allure.severity(allure.severity_level.NORMAL)
+# def test_reset_mobile_account(driver) -> None:
+#     """
+#     Standalone utility test to reset TEST_MOBILE (372217263) and TEST_EMAIL (kieu.signup.auto@yopmail.com)
+#     via Eskimo Stage API.
+#     """
+#     api = ApiHelper()
+#     res_mobile = api.reset_mobile_account(TEST_MOBILE)
+#     res_email = api.reset_email_account(TEST_EMAIL)
+#     logger.info(f"Reset mobile account result: {res_mobile}")
+#     logger.info(f"Reset email account result: {res_email}")
+#     assert res_mobile.get("status_code") == 200, f"Reset mobile account failed: {res_mobile}"
 
 

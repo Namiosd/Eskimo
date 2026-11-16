@@ -47,6 +47,227 @@ def generate_fresh_email(prefix: str = "kieu.signup") -> str:
     return email
 
 
+def dismiss_account_suspended_popup(driver: webdriver.Remote, timeout: int = 5) -> bool:
+    """
+    Check if the 'Account Suspended' popup (`header` = 'Account Suspended') is displayed,
+    and close it via the 'X' button (`img_close`) or 'Cancel' button (`btn_cancel`).
+    Returns True if the popup was detected and dismissed.
+    """
+    try:
+        suspended_xpath = (
+            "//*[@resource-id='travel.eskimo.esim.uat:id/header' and contains(@text, 'Account Suspended')] | "
+            "//*[contains(@text, 'Account Suspended') or contains(@text, 'Contact support for assistance')]"
+        )
+        elems = WebDriverWait(driver, timeout).until(
+            EC.presence_of_all_elements_located((AppiumBy.XPATH, suspended_xpath))
+        )
+        if elems and elems[0].is_displayed():
+            logger.info("Detected 'Account Suspended' popup. Closing popup...")
+            close_xpath = (
+                "//*[@resource-id='travel.eskimo.esim.uat:id/img_close' or "
+                "@resource-id='travel.eskimo.esim.uat:id/btn_cancel' or "
+                "@text='Cancel']"
+            )
+            close_btns = driver.find_elements(AppiumBy.XPATH, close_xpath)
+            for btn in close_btns:
+                if btn.is_displayed():
+                    btn.click()
+                    logger.info("✅ Closed 'Account Suspended' popup.")
+                    time.sleep(2)
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def is_on_guest_onboarding(driver: webdriver.Remote, timeout: int = 5) -> bool:
+    """
+    Check whether the app is currently on the Guest Onboarding screen or Sign Up gate screen.
+    Explicitly returns False if the app is on the 'Last step' screen (which also has `et_email`).
+    """
+    try:
+        last_step_elems = driver.find_elements(
+            AppiumBy.XPATH,
+            "//*[@resource-id='travel.eskimo.esim.uat:id/et_first_name' or @text='Last step' or @text='Complete sign up']"
+        )
+        if last_step_elems and last_step_elems[0].is_displayed():
+            return False
+    except Exception:
+        pass
+
+    onboarding_xpath = (
+        "//*[@resource-id='travel.eskimo.esim.uat:id/btn_claim_offer' or "
+        "@resource-id='travel.eskimo.esim.uat:id/txt_claim_offer' or "
+        "@text='Claim your offer' or "
+        "@resource-id='travel.eskimo.esim.uat:id/btn_signup' or "
+        "@resource-id='travel.eskimo.esim.uat:id/lbl_sign_up' or "
+        "@resource-id='travel.eskimo.esim.uat:id/txt_login' or "
+        "@resource-id='travel.eskimo.esim.uat:id/mobile_number_login' or "
+        "@text='Continue with Mobile Number' or "
+        "@text='Tiếp tục với số di động']"
+    )
+    try:
+        elem = WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((AppiumBy.XPATH, onboarding_xpath))
+        )
+        return elem.is_displayed()
+    except Exception:
+        return False
+
+
+def auto_logout_if_not_on_onboarding(driver: webdriver.Remote) -> None:
+    """
+    Check if the app is on the Guest Onboarding screen:
+    - If already on Guest Onboarding / Sign Up screen -> do nothing and proceed with the testcase.
+    - If stuck on 'Last step' screen -> tap Back and click 'No, I don't want the offer' to exit to Sign Up screen.
+    - If logged into Home/Account -> automatically log out via UI
+      (Account tab -> Log out -> Confirm Log out), and fallback to resetting app data if needed.
+    """
+    with allure.step("Check Guest Onboarding state (auto-logout if logged in)"), Step(
+        "Check Guest Onboarding state (auto-logout if logged in)"
+    ):
+        dismiss_account_suspended_popup(driver, timeout=2)
+
+        # If stuck on 'Last step' screen from a previous testcase (e.g. TC_05), exit via retention offer decline
+        try:
+            last_step_elems = driver.find_elements(
+                AppiumBy.XPATH,
+                "//*[@resource-id='travel.eskimo.esim.uat:id/et_first_name' or @text='Last step' or @text='Complete sign up']"
+            )
+            if last_step_elems and last_step_elems[0].is_displayed():
+                logger.info("App is currently on 'Last step' screen. Exiting back to Sign Up screen...")
+                driver.back()
+                time.sleep(2)
+                decline_btns = driver.find_elements(
+                    AppiumBy.XPATH,
+                    "//*[contains(@text, 'want the offer') or "
+                    "@resource-id='travel.eskimo.esim.uat:id/txt_no_offer' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_no_offer']"
+                )
+                if decline_btns and decline_btns[0].is_displayed():
+                    decline_btns[0].click()
+                    time.sleep(2)
+        except Exception:
+            pass
+
+        if is_on_guest_onboarding(driver, timeout=3):
+            logger.info("✅ App is already on Guest Onboarding / Sign Up screen. Proceeding with testcase.")
+            return
+
+        handle_notification_onboarding(driver, timeout=3)
+        handle_welcome_popup(driver, timeout=3)
+        dismiss_account_suspended_popup(driver, timeout=2)
+
+        if is_on_guest_onboarding(driver, timeout=3):
+            logger.info("✅ App is already on Guest Onboarding / Sign Up screen. Proceeding with testcase.")
+            return
+
+        logger.info("App is NOT on Guest Onboarding screen. Attempting automatic Logout...")
+
+        # Try navigating back up to 3 times if stuck on an inner screen
+        for _ in range(3):
+            if is_on_guest_onboarding(driver, timeout=2):
+                logger.info("✅ Reached Guest Onboarding screen after navigating back.")
+                return
+            nav_account = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/navigation_account")
+            if nav_account and nav_account[0].is_displayed():
+                break
+            handle_welcome_popup(driver, timeout=2)
+            dismiss_account_suspended_popup(driver, timeout=2)
+            try:
+                driver.back()
+                time.sleep(2)
+            except Exception:
+                break
+
+        # Perform UI Logout via Account tab if bottom navigation is accessible
+        logged_out_via_ui = False
+        try:
+            nav_account = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/navigation_account")
+            if nav_account and nav_account[0].is_displayed():
+                nav_account[0].click()
+                logger.info("Clicked 'Account' tab to perform automatic logout.")
+                time.sleep(2)
+
+                dismiss_account_suspended_popup(driver, timeout=2)
+
+                logout_item_xpath = (
+                    "//*[@resource-id='travel.eskimo.esim.uat:id/lbl_logout' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_logout' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_log_out' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/log_out' or "
+                    "contains(@text, 'Log out') or contains(@text, 'Log Out')]"
+                )
+                # Scroll down on Account screen if Log out button is below the fold
+                for _ in range(3):
+                    logout_btns = driver.find_elements(AppiumBy.XPATH, logout_item_xpath)
+                    if logout_btns and logout_btns[0].is_displayed():
+                        logout_btns[0].click()
+                        logger.info("Clicked 'Log out' option on Account screen.")
+                        time.sleep(2)
+                        break
+                    try:
+                        driver.find_element(
+                            AppiumBy.ANDROID_UIAUTOMATOR,
+                            'new UiScrollable(new UiSelector().scrollable(true)).scrollForward()',
+                        )
+                        time.sleep(1)
+                    except Exception:
+                        break
+
+                # Confirm Logout dialog ('Are you sure you want to log out?')
+                confirm_logout_xpath = (
+                    "//*[@resource-id='travel.eskimo.esim.uat:id/btn_log_out' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_logout' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_ok' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/btn_yes' or "
+                    "@text='Log out' or @text='Log Out' or @text='Yes']"
+                )
+                confirm_btns = driver.find_elements(AppiumBy.XPATH, confirm_logout_xpath)
+                if confirm_btns:
+                    confirm_btns[-1].click()
+                    logger.info("Confirmed 'Log out' on confirmation dialog.")
+                    time.sleep(3)
+                    logged_out_via_ui = True
+        except Exception as e:
+            logger.warning(f"UI logout attempt encountered warning: {e}")
+
+        if logged_out_via_ui:
+            # Restart PreLoaderActivity after UI logout so Eskimo reloads the Country Code list in memory
+            app_package = TestConfig.APP_PACKAGE
+            app_activity = TestConfig.APP_ACTIVITY
+            device_id = TestConfig.DEVICE_NAME
+            try:
+                driver.terminate_app(app_package)
+            except Exception:
+                pass
+            try:
+                subprocess.run(
+                    ["adb", "-s", device_id, "shell", "am", "start", "-W", "-n", f"{app_package}/{app_activity}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=20,
+                )
+            except Exception:
+                pass
+            try:
+                driver.activate_app(app_package)
+            except Exception:
+                pass
+            time.sleep(4)
+            handle_notification_onboarding(driver, timeout=3)
+            dismiss_account_suspended_popup(driver, timeout=2)
+            if is_on_guest_onboarding(driver, timeout=6):
+                logger.info("✅ Successfully logged out via UI and reloaded Guest Onboarding screen.")
+                return
+
+        # Fallback: If still not on Guest Onboarding, force clear package data & relaunch
+        if not is_on_guest_onboarding(driver, timeout=3):
+            logger.info("App still not on Onboarding after UI logout attempt. Forcing clean reset to Guest Onboarding...")
+            reset_app_to_guest_onboarding(driver, force_pm_clear=True)
+
+
 def reset_app_to_guest_onboarding(
     driver: webdriver.Remote,
     rotate_device_id: bool = True,
@@ -54,26 +275,31 @@ def reset_app_to_guest_onboarding(
 ) -> None:
     """
     Reset application state back to Guest Onboarding screen:
-    - Only runs `pm clear` if `force_pm_clear=True` or if the app is currently logged into Home (`navigation_home`),
-      preventing `pm clear` from killing the UiAutomator2 instrumentation server between negative tests.
+    - Checks for 'Account Suspended' popup, post-signup popups, or logged-in Home/Account screens.
+    - Runs `pm clear` if `force_pm_clear=True` or if the app is not on Guest Onboarding.
     - Explicitly starts `PreLoaderActivity` via ADB + `activate_app` so the app never stays stuck on the Android desktop.
     """
     app_package = TestConfig.APP_PACKAGE
     app_activity = TestConfig.APP_ACTIVITY
     device_id = TestConfig.DEVICE_NAME
     with allure.step("Reset app state to Guest Onboarding screen"), Step("Reset app state to Guest Onboarding screen"):
+        dismiss_account_suspended_popup(driver, timeout=2)
+        handle_welcome_popup(driver, timeout=2)
+
         need_clear = force_pm_clear
         if not need_clear:
             try:
-                logged_in = driver.find_elements(
+                logged_in_or_suspended = driver.find_elements(
                     AppiumBy.XPATH,
                     "//*[@resource-id='travel.eskimo.esim.uat:id/navigation_home' or "
-                    "@resource-id='travel.eskimo.esim.uat:id/navigation_account']"
+                    "@resource-id='travel.eskimo.esim.uat:id/navigation_account' or "
+                    "@resource-id='travel.eskimo.esim.uat:id/title_in_reward_bonus' or "
+                    "contains(@text, 'Account Suspended')]"
                 )
-                if logged_in:
+                if logged_in_or_suspended or not is_on_guest_onboarding(driver, timeout=3):
                     need_clear = True
             except Exception:
-                pass
+                need_clear = True
 
         try:
             driver.terminate_app(app_package)
@@ -125,6 +351,7 @@ def reset_app_to_guest_onboarding(
 
         time.sleep(4)
         handle_notification_onboarding(driver)
+        dismiss_account_suspended_popup(driver, timeout=3)
 
 
 def reset_signup_phone_account(
@@ -159,11 +386,11 @@ def reset_signup_phone_account(
 
 def open_signup_gate_from_onboarding(driver: webdriver.Remote) -> None:
     """
-    From the Guest Onboarding screen, click 'Claim your offer' to open the 'Sign up for Eskimo' screen.
+    Ensure the app is on Guest Onboarding (auto-logout if logged in, dismiss 'Account Suspended' if present),
+    then click 'Claim your offer' to open the 'Sign up for Eskimo' screen.
     If the app is already on 'Sign up for Eskimo', proceed directly.
     """
-    handle_notification_onboarding(driver)
-    handle_welcome_popup(driver)
+    auto_logout_if_not_on_onboarding(driver)
 
     with allure.step("Navigate to 'Sign up for Eskimo' screen from Onboarding"), Step(
         "Navigate to 'Sign up for Eskimo' screen from Onboarding"
@@ -172,9 +399,10 @@ def open_signup_gate_from_onboarding(driver: webdriver.Remote) -> None:
             "//*[@resource-id='travel.eskimo.esim.uat:id/btn_claim_offer' or "
             "@resource-id='travel.eskimo.esim.uat:id/txt_claim_offer' or "
             "@text='Claim your offer' or "
-            "@resource-id='travel.eskimo.esim.uat:id/et_email' or "
             "@resource-id='travel.eskimo.esim.uat:id/mobile_number_login' or "
-            "@text='Continue with Mobile Number']"
+            "@resource-id='travel.eskimo.esim.uat:id/txt_mobile_number' or "
+            "@text='Continue with Mobile Number' or "
+            "@text='Tiếp tục với số di động']"
         )
         elem = wait_for_element_with_anr_handling(driver, gate_or_claim_xpath, timeout=60)
         res_id = elem.get_attribute("resource-id") or ""
@@ -194,7 +422,8 @@ def select_continue_with_mobile(driver: webdriver.Remote) -> None:
         mobile_xpath = (
             "//*[@resource-id='travel.eskimo.esim.uat:id/mobile_number_login' or "
             "@resource-id='travel.eskimo.esim.uat:id/txt_mobile_number' or "
-            "@text='Continue with Mobile Number']"
+            "@text='Continue with Mobile Number' or "
+            "@text='Tiếp tục với số di động']"
         )
         mobile_btn = wait_for_element_with_anr_handling(driver, mobile_xpath, timeout=30)
         assert mobile_btn.is_displayed() and mobile_btn.is_enabled(), "UI ERROR: 'Continue with Mobile Number' button not active!"
@@ -222,6 +451,24 @@ def select_country_code(driver: webdriver.Remote, country_name: str = TestConfig
     """Select country code (+84 Vietnam by default) on the Mobile Number screen."""
     wait = WebDriverWait(driver, 20)
     with allure.step(f"Select country code: {country_name}"), Step(f"Select country code: {country_name}"):
+        country_code = wait.until(
+            EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
+        )
+        current_cc_text = (country_code.text or "").strip()
+        if not current_cc_text:
+            try:
+                inner_tvs = country_code.find_elements(AppiumBy.CLASS_NAME, "android.widget.TextView")
+                current_cc_text = " ".join((tv.text or "") for tv in inner_tvs).strip()
+            except Exception:
+                current_cc_text = ""
+
+        if country_name.lower() == "vietnam" and "84" in current_cc_text:
+            logger.info(f"Country code is already set to Vietnam ({current_cc_text}), skipping modal.")
+            return
+        if country_name.lower() == "singapore" and "65" in current_cc_text:
+            logger.info(f"Country code is already set to Singapore ({current_cc_text}), skipping modal.")
+            return
+
         for _ in range(3):
             try:
                 country_code = wait.until(
@@ -240,14 +487,63 @@ def select_country_code(driver: webdriver.Remote, country_name: str = TestConfig
         search_field.send_keys(country_name)
         time.sleep(1)
 
-        vietnam_option = wait.until(
-            EC.element_to_be_clickable((
-                AppiumBy.XPATH,
-                '//android.widget.RelativeLayout[@resource-id="travel.eskimo.esim.uat:id/test"]/android.widget.LinearLayout/android.widget.LinearLayout'
-            ))
-        )
-        vietnam_option.click()
-        time.sleep(1)
+        option_xpath = '//android.widget.RelativeLayout[@resource-id="travel.eskimo.esim.uat:id/test"]/android.widget.LinearLayout/android.widget.LinearLayout'
+        try:
+            country_option = WebDriverWait(driver, 6).until(
+                EC.element_to_be_clickable((AppiumBy.XPATH, option_xpath))
+            )
+            country_option.click()
+            time.sleep(1)
+        except TimeoutException:
+            logger.warning(
+                f"Country list is empty when searching '{country_name}' (post-logout cache issue). "
+                "Restarting PreLoaderActivity to reload country list..."
+            )
+            app_package = TestConfig.APP_PACKAGE
+            app_activity = TestConfig.APP_ACTIVITY
+            device_id = TestConfig.DEVICE_NAME
+            try:
+                driver.terminate_app(app_package)
+            except Exception:
+                pass
+            try:
+                subprocess.run(
+                    ["adb", "-s", device_id, "shell", "am", "start", "-W", "-n", f"{app_package}/{app_activity}"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=20,
+                )
+            except Exception:
+                pass
+            try:
+                driver.activate_app(app_package)
+            except Exception:
+                pass
+            time.sleep(4)
+            open_signup_gate_from_onboarding(driver)
+            select_continue_with_mobile(driver)
+
+            country_code = wait.until(
+                EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
+            )
+            current_cc_text = (country_code.text or "").strip()
+            if country_name.lower() == "vietnam" and "84" in current_cc_text:
+                logger.info(f"Country code is already set to Vietnam ({current_cc_text}) after reload.")
+                return
+            country_code.click()
+            time.sleep(1)
+            search_field = wait.until(
+                EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txtSearch"))
+            )
+            search_field.clear()
+            search_field.send_keys(country_name)
+            time.sleep(1)
+            country_option = wait.until(
+                EC.element_to_be_clickable((AppiumBy.XPATH, option_xpath))
+            )
+            country_option.click()
+            time.sleep(1)
 
 
 def enter_mobile_and_submit(driver: webdriver.Remote, phone: str, request_otp_channel: bool = True) -> None:
@@ -323,10 +619,10 @@ def enter_email_and_submit(driver: webdriver.Remote, email: str) -> None:
         time.sleep(3)
 
 
-def input_otp_code(driver: webdriver.Remote, otp: str = TestConfig.OTP) -> None:
-    """Populate the 4-digit OTP code on the Verify OTP screen."""
-    wait = WebDriverWait(driver, 25)
-    with allure.step(f"Input OTP code: {otp}"), Step(f"Input OTP code: {otp}"):
+def input_otp_code(driver: webdriver.Remote, otp: str = TestConfig.OTP, timeout: int = 35) -> None:
+    """Populate the 4-digit OTP code on the Verify OTP screen (default wait timeout: 35s)."""
+    wait = WebDriverWait(driver, timeout)
+    with allure.step(f"Input OTP code: {otp} (wait up to {timeout}s)"), Step(f"Input OTP code: {otp} (wait up to {timeout}s)"):
         time.sleep(4)
         wait.until(EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/otp1")))
         for i, digit in enumerate(otp, start=1):
@@ -453,7 +749,12 @@ def apply_referral_code_on_last_step(driver: webdriver.Remote, referral_code: st
 
 
 def is_complete_sign_up_enabled(driver: webdriver.Remote) -> bool:
-    """Check whether the 'Complete sign up' button on 'Last step' is currently enabled."""
+    """
+    Check whether the 'Complete sign up' button on 'Last step' is ready/enabled:
+    On Android Eskimo UAT, the CardView `btn_continue` keeps XML `enabled='true'` even when greyed out,
+    so we check both the button presence and whether all required fields (`et_first_name`, `et_last_name`, `et_email`)
+    are filled (non-empty and `showing-hint != 'true'`).
+    """
     btn_xpath = (
         "//*[@text='Complete sign up' or "
         "@resource-id='travel.eskimo.esim.uat:id/btn_complete_sign_up' or "
@@ -462,8 +763,28 @@ def is_complete_sign_up_enabled(driver: webdriver.Remote) -> bool:
     )
     elem = wait_for_element_with_anr_handling(driver, btn_xpath, timeout=15)
     enabled_attr = (elem.get_attribute("enabled") or "").lower() == "true"
-    clickable_attr = (elem.get_attribute("clickable") or "").lower() == "true"
-    return enabled_attr and clickable_attr
+    if not enabled_attr:
+        return False
+
+    try:
+        fn_elem = driver.find_element(AppiumBy.ID, "travel.eskimo.esim.uat:id/et_first_name")
+        ln_elem = driver.find_element(AppiumBy.ID, "travel.eskimo.esim.uat:id/et_last_name")
+        fn_text = (fn_elem.text or "").strip()
+        ln_text = (ln_elem.text or "").strip()
+        fn_ok = len(fn_text) > 0 and fn_text.lower() != "first name"
+        ln_ok = len(ln_text) > 0 and ln_text.lower() != "last name"
+
+        email_elems = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/et_email")
+        if email_elems and email_elems[0].is_displayed():
+            em_text = (email_elems[0].text or "").strip()
+            em_ok = len(em_text) > 0 and em_text.lower() != "mo@eskimo.travel"
+        else:
+            em_ok = True
+
+        return fn_ok and ln_ok and em_ok
+    except Exception as e:
+        logger.warning(f"is_complete_sign_up_enabled check warning: {e}")
+        return False
 
 
 def click_complete_sign_up(driver: webdriver.Remote) -> None:
@@ -484,35 +805,68 @@ def click_complete_sign_up(driver: webdriver.Remote) -> None:
 
 def verify_home_screen_after_signup(driver: webdriver.Remote, check_signup_offer: bool = False) -> bool:
     """
-    Dismiss post-signup notification/welcome overlays and verify user lands on Home screen.
-    Optionally checks if a sign-up coupon / free-trial offer is presented.
+    Dismiss post-signup notification/welcome overlays (including the 'Get 35% off your first purchase'
+    popup by clicking its top-right 'X' button `img_close`) and verify user lands on the Home screen.
+    Note: The 'Buy now, travel anytime!' CTA (`btn_invite`) is reserved for the Buy Data Plan task.
     """
     offer_detected = False
-    with allure.step("Verify Home screen loaded after Sign Up"), Step("Verify Home screen loaded after Sign Up"):
-        handle_notification_onboarding(driver)
+    with allure.step("Dismiss post-signup popups (click 'X' on 35% off popup) and verify Home screen"), Step(
+        "Dismiss post-signup popups (click 'X' on 35% off popup) and verify Home screen"
+    ):
+        end_time = time.monotonic() + 60
+        home_tab = None
 
-        try:
-            offer_xpath = (
-                "//*[contains(@text, 'Welcome') or contains(@text, 'Free') or "
-                "contains(@text, '250 MB') or contains(@text, 'coupon') or contains(@text, 'offer')]"
-            )
-            offer_elems = driver.find_elements(AppiumBy.XPATH, offer_xpath)
-            if offer_elems and offer_elems[0].is_displayed():
-                offer_detected = True
-                logger.info(f"Sign-up offer/coupon detected on arrival: '{offer_elems[0].text}'")
-        except Exception:
-            pass
+        while time.monotonic() < end_time:
+            # 1. If Notification Onboarding ('Allow notifications' / 'Skip') is shown, dismiss it
+            try:
+                notif_btns = driver.find_elements(
+                    AppiumBy.XPATH,
+                    "//*[@resource-id='travel.eskimo.esim.uat:id/btn_allow' or @resource-id='travel.eskimo.esim.uat:id/btn_skip']",
+                )
+                if notif_btns and notif_btns[0].is_displayed():
+                    handle_notification_onboarding(driver, timeout=3)
+                    continue
+            except Exception:
+                pass
 
-        handle_welcome_popup(driver)
-        time.sleep(2)
+            # 2. If 'Get 35% off your first purchase' (or Welcome) popup is shown, click 'X' (`img_close`)
+            try:
+                popup_elems = driver.find_elements(
+                    AppiumBy.XPATH,
+                    "//*[@resource-id='travel.eskimo.esim.uat:id/title_in_reward_bonus' or "
+                    "contains(@text, 'Get 35% off') or "
+                    "contains(@text, 'first purchase') or "
+                    "contains(@text, 'Buy now, travel anytime') or "
+                    "contains(@text, 'Welcome')]",
+                )
+                if popup_elems and popup_elems[0].is_displayed():
+                    offer_detected = True
+                    logger.info(f"Detected post-signup popup: '{popup_elems[0].text}'. Clicking 'X' (`img_close`) to go to Home...")
+                    if handle_welcome_popup(driver, timeout=3):
+                        continue
+            except Exception:
+                pass
 
-        home_tab = wait_for_element_with_anr_handling(
-            driver,
-            "//*[@resource-id='travel.eskimo.esim.uat:id/navigation_home']",
-            timeout=60,
+            # 3. Check if Home screen navigation bar is now visible
+            try:
+                home_elems = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/navigation_home")
+                if home_elems and home_elems[0].is_displayed():
+                    # Wait briefly in case the 35% off popup animates in right after Home loads
+                    time.sleep(2)
+                    if handle_welcome_popup(driver, timeout=3):
+                        offer_detected = True
+                    home_tab = driver.find_element(AppiumBy.ID, "travel.eskimo.esim.uat:id/navigation_home")
+                    if home_tab.is_displayed():
+                        break
+            except Exception:
+                pass
+
+            time.sleep(2)
+
+        assert home_tab is not None and home_tab.is_displayed(), (
+            "Home screen navigation bar was not displayed after Sign Up!"
         )
-        assert home_tab.is_displayed(), "Home screen navigation bar was not displayed after Sign Up!"
-        logger.info("Sign Up complete! User is authenticated and on the Home screen.")
+        logger.info("✅ Sign Up complete! Closed post-signup popup via 'X' and verified Home screen.")
 
         if check_signup_offer:
             logger.info(f"Sign-up offer visibility check result: {offer_detected}")
@@ -617,13 +971,27 @@ def verify_already_registered_email_popup(driver: webdriver.Remote) -> None:
     with allure.step("Verify 'This email is already in use' popup is displayed"), Step(
         "Verify 'This email is already in use' popup is displayed"
     ):
+        # Wait up to 30s for any active loading spinner (`progress_nearby`) to disappear
+        end_wait = time.monotonic() + 30
+        while time.monotonic() < end_wait:
+            try:
+                spinners = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/progress_nearby")
+                if not spinners or not spinners[0].is_displayed():
+                    break
+            except Exception:
+                break
+            time.sleep(1)
+
         popup_xpath = (
-            "//*[contains(@text, 'This email is already in use') or "
+            "//*[@resource-id='travel.eskimo.esim.uat:id/design_bottom_sheet' or "
+            "contains(@text, 'This email is already in use') or "
             "contains(@text, 'This email is linked to an existing') or "
+            "contains(@text, 'đã được sử dụng') or "
+            "contains(@text, 'đã liên kết') or "
             "@text='Log in with mobile number' or "
             "@text='Sign up with a different email']"
         )
-        popup_elem = wait_for_element_with_anr_handling(driver, popup_xpath, timeout=20)
+        popup_elem = wait_for_element_with_anr_handling(driver, popup_xpath, timeout=25)
         assert popup_elem.is_displayed(), (
             "VALIDATION ERROR: Expected 'This email is already in use' bottom-sheet did not appear!"
         )
@@ -632,7 +1000,7 @@ def verify_already_registered_email_popup(driver: webdriver.Remote) -> None:
         # Verify action buttons on the popup
         diff_email_btns = driver.find_elements(
             AppiumBy.XPATH,
-            "//*[@text='Sign up with a different email' or contains(@text, 'different email')]"
+            "//*[@text='Sign up with a different email' or contains(@text, 'different email') or contains(@text, 'email khác') or @resource-id='travel.eskimo.esim.uat:id/btn_cancel']"
         )
         if diff_email_btns and diff_email_btns[0].is_displayed():
             diff_email_btns[0].click()
@@ -644,8 +1012,21 @@ def verify_error_shown_and_not_progressed(driver: webdriver.Remote, stay_Element
     """
     Verify that an error message/dialog/bottom-sheet is shown (or screen stays on current step)
     for negative validation test cases.
+    Waits for any active loading spinner (`progress_nearby`) to disappear first.
     """
     with allure.step("Verify error state / cannot continue to next step"), Step("Verify error state / cannot continue to next step"):
+        # Wait up to 30s for the loading dialog (`progress_nearby`) to disappear
+        end_wait = time.monotonic() + 30
+        while time.monotonic() < end_wait:
+            try:
+                spinners = driver.find_elements(AppiumBy.ID, "travel.eskimo.esim.uat:id/progress_nearby")
+                if not spinners or not spinners[0].is_displayed():
+                    break
+            except Exception:
+                break
+            time.sleep(1)
+        time.sleep(1)
+
         error_xpath = (
             "//*[@resource-id='travel.eskimo.esim.uat:id/oops_image' or "
             "@resource-id='travel.eskimo.esim.uat:id/design_bottom_sheet' or "

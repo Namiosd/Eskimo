@@ -20,6 +20,10 @@ def create_driver() -> webdriver.Remote:
         options.set_capability(k, v)
         
     driver = webdriver.Remote(TestConfig.APPIUM_URL, options=options)
+    try:
+        driver.update_settings({"waitForIdleTimeout": 100})
+    except Exception:
+        pass
     logger.info("Connected to Appium Server and initialized Android session successfully.")
     return driver
 

@@ -16,6 +16,40 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# Fallback shim if allure-pytest is not installed in the current environment
+try:
+    import allure  # noqa: F401
+except ModuleNotFoundError:
+    import types
+    from contextlib import contextmanager
+
+    class _DummyAllureStep:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __call__(self, func):
+            return func
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+    def _noop_decorator(*args, **kwargs):
+        def _wrap(func):
+            return func
+        return _wrap
+
+    _dummy_allure = types.ModuleType("allure")
+    _dummy_allure.step = lambda *a, **kw: _DummyAllureStep(*a, **kw)
+    _dummy_allure.feature = _noop_decorator
+    _dummy_allure.story = _noop_decorator
+    _dummy_allure.title = _noop_decorator
+    _dummy_allure.severity = _noop_decorator
+    _dummy_allure.issue = _noop_decorator
+    _dummy_allure.attach = lambda *a, **kw: None
+    _dummy_allure.attachment_type = types.SimpleNamespace(PNG="png", XML="xml", TEXT="text")
+    _dummy_allure.severity_level = types.SimpleNamespace(BLOCKER="blocker", CRITICAL="critical", NORMAL="normal")
+    sys.modules["allure"] = _dummy_allure
+
 from core.driver_factory import create_driver
 from pages.login_page import login
 from config import TestConfig

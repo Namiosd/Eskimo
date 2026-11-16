@@ -28,77 +28,148 @@ def _tap_login_on_sign_up(driver: webdriver.Remote, text_element: webdriver.WebE
 
 
 def _execute_mobile_number_login(driver: webdriver.Remote, phone: str, otp: str) -> None:
-    """Perform mobile number input, OTP verification, and post-login resolution stages."""
+    """
+    Perform mobile number input, OTP verification, and post-login resolution stages.
+    Pattern: Check UI -> Action -> Verify
+    """
     wait = WebDriverWait(driver, 20)
-    
-    # 4. Select Country Code (Vietnam)
-    with allure.step("Select Vietnam country code (+84)"), Step("Select Vietnam country code (+84)"):
-        for _ in range(3):
+
+    # ============================================================
+    # BƯỚC 3: Chọn mã vùng Quốc gia (+84 Vietnam)
+    # ============================================================
+    with allure.step("[Check UI] Verify Country Code selector is visible"), Step("[Check UI] Verify Country Code selector is visible"):
+        country_code = wait.until(
+            EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
+        )
+        assert country_code.is_displayed(), "UI ERROR: Country code selector is not visible!"
+        logger.info("✅ [Check UI] Country code selector is visible.")
+
+    with allure.step("[Action] Select Vietnam country code (+84)"), Step("[Action] Select Vietnam country code (+84)"):
+        current_cc_text = (country_code.text or "").strip()
+        if not current_cc_text:
             try:
-                country_code = wait.until(
-                    EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
-                )
-                country_code.click()
-                break
-            except StaleElementReferenceException:
-                time.sleep(1)
-        time.sleep(1)
+                inner_tvs = country_code.find_elements(AppiumBy.CLASS_NAME, "android.widget.TextView")
+                current_cc_text = " ".join((tv.text or "") for tv in inner_tvs).strip()
+            except Exception:
+                current_cc_text = ""
 
-        search_field = wait.until(
-            EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txtSearch"))
-        )
-        search_field.send_keys(TestConfig.COUNTRY_SEARCH)
-        time.sleep(1)
+        if "84" in current_cc_text:
+            logger.info(f"✅ [Action] Country code is already set to Vietnam ({current_cc_text}), skipping modal.")
+        else:
+            for _ in range(3):
+                try:
+                    country_code = wait.until(
+                        EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
+                    )
+                    country_code.click()
+                    break
+                except StaleElementReferenceException:
+                    time.sleep(1)
+            time.sleep(1)
 
-        vietnam_option = wait.until(
-            EC.element_to_be_clickable((AppiumBy.XPATH,
-                '//android.widget.RelativeLayout[@resource-id="travel.eskimo.esim.uat:id/test"]/android.widget.LinearLayout/android.widget.LinearLayout'))
-        )
-        vietnam_option.click()
+            search_field = wait.until(
+                EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txtSearch"))
+            )
+            search_field.clear()
+            search_field.send_keys(TestConfig.COUNTRY_SEARCH)
+            time.sleep(1)
 
-    # 5. Enter Phone Number
-    with allure.step(f"Enter phone number: {phone}"), Step(f"Enter phone number: {phone}"):
+            vietnam_option = wait.until(
+                EC.element_to_be_clickable((AppiumBy.XPATH,
+                    '//android.widget.RelativeLayout[@resource-id="travel.eskimo.esim.uat:id/test"]/android.widget.LinearLayout/android.widget.LinearLayout'))
+            )
+            vietnam_option.click()
+            logger.info("✅ [Action] Selected Vietnam (+84) from Country Code list.")
+
+    with allure.step("[Verify] Verify return to Mobile Number input screen with Country Code ready"), Step("[Verify] Verify return to Mobile Number input screen with Country Code ready"):
         phone_field = wait.until(
             EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/et_mobile_number"))
         )
+        assert phone_field.is_displayed(), "TRANSITION ERROR: Phone number input field is not visible after country selection!"
+        logger.info("✅ [Verify] Country code ready and phone number input field is displayed.")
+
+    # ============================================================
+    # BƯỚC 4: Nhập số điện thoại & Click Continue
+    # ============================================================
+    with allure.step("[Check UI] Verify phone number input field is visible and enabled"), Step("[Check UI] Verify phone number input field is visible and enabled"):
+        phone_field = wait.until(
+            EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/et_mobile_number"))
+        )
+        assert phone_field.is_displayed() and phone_field.is_enabled(), "UI ERROR: Phone number field is not visible or disabled!"
+        logger.info("✅ [Check UI] Phone number input field is visible and enabled.")
+
+    with allure.step(f"[Action] Enter phone number ({phone}) and click 'Continue'"), Step(f"[Action] Enter phone number ({phone}) and click 'Continue'"):
         phone_field.clear()
         phone_field.send_keys(phone)
-        logger.info(f"Entered phone number: {phone}")
+        logger.info(f"✅ [Action] Entered phone number: {phone}")
 
-        # Click Continue
         continue_btn = wait.until(
             EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/txt_continue"))
         )
+        assert continue_btn.is_displayed() and continue_btn.is_enabled(), "UI ERROR: 'Continue' button is not active after entering phone number!"
         continue_btn.click()
+        logger.info("✅ [Action] Clicked 'Continue' button.")
 
-    # 6. Request OTP via WhatsApp
-    with allure.step("Request OTP via WhatsApp channel"), Step("Request OTP via WhatsApp channel"):
+    with allure.step("[Verify] Verify OTP delivery channel bottom sheet is displayed"), Step("[Verify] Verify OTP delivery channel bottom sheet is displayed"):
+        try:
+            whatsapp_btn = wait.until(
+                EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/btn_whatsapp"))
+            )
+            assert whatsapp_btn.is_displayed(), "TRANSITION ERROR: OTP channel bottom sheet did not appear!"
+            logger.info("✅ [Verify] OTP delivery channel bottom sheet is displayed.")
+        except TimeoutException:
+            raise AssertionError("TRANSITION ERROR: After clicking 'Continue', OTP channel bottom sheet did not load!")
+
+    # ============================================================
+    # BƯỚC 5: Chọn kênh nhận OTP qua WhatsApp
+    # ============================================================
+    with allure.step("[Check UI] Verify 'WhatsApp' button on OTP bottom sheet is visible and active"), Step("[Check UI] Verify 'WhatsApp' button on OTP bottom sheet is visible and active"):
         whatsapp_btn = wait.until(
-            EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/btn_whatsapp"))
+            EC.element_to_be_clickable((AppiumBy.ID, "travel.eskimo.esim.uat:id/btn_whatsapp"))
         )
-        whatsapp_btn.click()
-        logger.info("OTP requested via WhatsApp channel.")
+        assert whatsapp_btn.is_displayed() and whatsapp_btn.is_enabled(), "UI ERROR: 'WhatsApp' OTP button is not active!"
+        logger.info("✅ [Check UI] 'WhatsApp' OTP button is visible and active.")
 
-    # 7. Populate OTP digits
-    with allure.step(f"Input OTP code: {otp}"), Step(f"Input OTP code: {otp}"):
+    with allure.step("[Action] Click 'WhatsApp' button to request OTP"), Step("[Action] Click 'WhatsApp' button to request OTP"):
+        whatsapp_btn.click()
+        logger.info("✅ [Action] Clicked 'WhatsApp' to request OTP.")
+
+    with allure.step("[Verify] Verify transition to OTP input screen"), Step("[Verify] Verify transition to OTP input screen"):
         time.sleep(6)
-        wait.until(
-            EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/otp1"))
-        )
+        try:
+            otp_field_1 = wait.until(
+                EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/otp1"))
+            )
+            assert otp_field_1.is_displayed(), "TRANSITION ERROR: OTP input screen is not displayed!"
+            logger.info("✅ [Verify] Transitioned to OTP input screen successfully.")
+        except TimeoutException:
+            raise AssertionError("TRANSITION ERROR: After clicking 'WhatsApp', OTP screen did not appear!")
+
+    # ============================================================
+    # BƯỚC 6: Nhập mã OTP & Xác nhận vào màn hình Home
+    # ============================================================
+    with allure.step("[Check UI] Verify all 4 OTP input boxes (otp1..otp4) are visible"), Step("[Check UI] Verify all 4 OTP input boxes (otp1..otp4) are visible"):
+        for i in range(1, 5):
+            otp_box = wait.until(
+                EC.presence_of_element_located((AppiumBy.ID, f"travel.eskimo.esim.uat:id/otp{i}"))
+            )
+            assert otp_box.is_displayed(), f"UI ERROR: OTP box {i} is not visible!"
+        logger.info("✅ [Check UI] All 4 OTP input boxes (otp1..otp4) are displayed.")
+
+    with allure.step(f"[Action] Input 4-digit OTP code: {otp}"), Step(f"[Action] Input 4-digit OTP code: {otp}"):
         for i, digit in enumerate(otp, start=1):
             otp_field = driver.find_element(AppiumBy.ID, f"travel.eskimo.esim.uat:id/otp{i}")
             otp_field.send_keys(digit)
-        logger.info(f"Submitted OTP code: {otp}")
+        logger.info(f"✅ [Action] Submitted OTP code: {otp}")
 
-    # 8. Clear system prompts/marketing popups & Verify Login
-    with allure.step("Dismiss onboarding popups and verify home tab visibility"), Step("Dismiss onboarding popups and verify home tab visibility"):
+    with allure.step("[Verify] Dismiss onboarding popups and verify Home screen is loaded"), Step("[Verify] Dismiss onboarding popups and verify Home screen is loaded"):
         handle_notification_onboarding(driver)
         handle_welcome_popup(driver)
 
         time.sleep(2)
         home_tab = wait_for_element_with_anr_handling(driver, "//*[@resource-id='travel.eskimo.esim.uat:id/navigation_home']", timeout=60)
-        assert home_tab.is_displayed(), "Home screen navigation check failed after login sequence!"
-        logger.info("Authentication complete. Home screen dashboard is fully loaded.")
+        assert home_tab.is_displayed(), "TRANSITION ERROR: Home screen navigation tab not visible after submitting OTP!"
+        logger.info("✅ [Verify] Authentication complete! Home screen dashboard is fully loaded.")
 
 
 def login(driver: webdriver.Remote, phone: str = TestConfig.PHONE_NUMBER, otp: str = TestConfig.OTP) -> None:
@@ -202,15 +273,32 @@ def login(driver: webdriver.Remote, phone: str = TestConfig.PHONE_NUMBER, otp: s
             "travel.eskimo.esim.uat:id/tv_explore_plans",
             "travel.eskimo.esim.uat:id/btn_claim_offer",
         ]:
-            logger.info("Currently on Guest Onboarding screen. Clicking Login button...")
-            login_btn = wait.until(
-                EC.element_to_be_clickable((
-                    AppiumBy.XPATH,
-                    "//*[@resource-id='travel.eskimo.esim.uat:id/cd_login' or @resource-id='travel.eskimo.esim.uat:id/txt_login']"
-                ))
-            )
-            login_btn.click()
-            time.sleep(3)
+            # ============================================================
+            # BƯỚC 1: Nút Log in trên màn hình Onboarding
+            # ============================================================
+            with allure.step("[Check UI] Verify 'Log in' button is visible and active on Onboarding screen"), Step("[Check UI] Verify 'Log in' button is visible and active on Onboarding screen"):
+                login_btn = wait.until(
+                    EC.element_to_be_clickable((
+                        AppiumBy.XPATH,
+                        "//*[@resource-id='travel.eskimo.esim.uat:id/cd_login' or @resource-id='travel.eskimo.esim.uat:id/txt_login']"
+                    ))
+                )
+                assert login_btn.is_displayed() and login_btn.is_enabled(), "UI ERROR: 'Log in' button is not visible or disabled!"
+                logger.info("✅ [Check UI] 'Log in' button is visible and active.")
+
+            with allure.step("[Action] Click 'Log in' button"), Step("[Action] Click 'Log in' button"):
+                login_btn.click()
+                logger.info("✅ [Action] Clicked 'Log in' button.")
+                time.sleep(2)
+
+            with allure.step("[Verify] Verify transition to 'Welcome back' login screen"), Step("[Verify] Verify transition to 'Welcome back' login screen"):
+                welcome_el = wait_for_element_with_anr_handling(
+                    driver,
+                    "//android.widget.TextView[@text='Welcome back'] | //*[@text='Continue with Mobile Number']",
+                    timeout=30,
+                )
+                assert welcome_el.is_displayed(), "TRANSITION ERROR: 'Welcome back' screen did not appear after clicking 'Log in'!"
+                logger.info("✅ [Verify] 'Welcome back' screen is displayed.")
             
         else:
             logger.info("Directly on Sign up or Welcome back gate.")
@@ -218,25 +306,25 @@ def login(driver: webdriver.Remote, phone: str = TestConfig.PHONE_NUMBER, otp: s
     except Exception as e:
         raise Exception(f"Unable to recognize target login gate screen layout state: {e}")
 
-    # 1. Check layout UI trước khi click
-    with allure.step("Verify UI Layout: Check 'Continue with Mobile Number' button is visible and active"), Step("Verify UI Layout: Check 'Continue with Mobile Number' button is visible and active"):
+    # ============================================================
+    # BƯỚC 2: Chọn 'Continue with Mobile Number'
+    # ============================================================
+    with allure.step("[Check UI] Verify 'Continue with Mobile Number' button is visible and active"), Step("[Check UI] Verify 'Continue with Mobile Number' button is visible and active"):
         mobile_btn = wait_for_element_with_anr_handling(driver, "//*[@text='Continue with Mobile Number']", timeout=60)
         assert mobile_btn.is_displayed(), "UI ERROR: 'Continue with Mobile Number' button is not visible on login screen!"
         assert mobile_btn.is_enabled(), "UI ERROR: 'Continue with Mobile Number' button is disabled!"
-        logger.info("UI Check: 'Continue with Mobile Number' button is displayed and active.")
+        logger.info("✅ [Check UI] 'Continue with Mobile Number' button is displayed and active.")
 
-    # 2. Bấm nút function
-    with allure.step("Click 'Continue with Mobile Number' button"), Step("Click 'Continue with Mobile Number' button"):
+    with allure.step("[Action] Click 'Continue with Mobile Number' button"), Step("[Action] Click 'Continue with Mobile Number' button"):
         mobile_btn.click()
-        logger.info("Clicked 'Continue with Mobile Number' button.")
+        logger.info("✅ [Action] Clicked 'Continue with Mobile Number' button.")
     
-    # 3. Verify xem sau khi bấm nút thì nút có hoạt động không
-    with allure.step("Verify Transition: Check if phone number input field/country code is rendered"), Step("Verify Transition: Check if phone number input field/country code is rendered"):
+    with allure.step("[Verify] Verify transition to Mobile Number input screen"), Step("[Verify] Verify transition to Mobile Number input screen"):
         try:
             wait.until(
                 EC.presence_of_element_located((AppiumBy.ID, "travel.eskimo.esim.uat:id/country_code"))
             )
-            logger.info("Verify OK: Button worked, country code / phone field is displayed.")
+            logger.info("✅ [Verify] Button worked, country code / phone field is displayed.")
         except TimeoutException:
             raise AssertionError("TRANSITION ERROR: After clicking 'Continue with Mobile Number', the phone inputs page did not load!")
 

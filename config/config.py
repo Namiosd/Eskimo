@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any
 
 
@@ -8,11 +9,16 @@ class TestConfig:
     API_BASE_URL: str = "https://stage-api.eskimo.travel"
     COUNTRY_CODE: str = "84"
     PHONE_NUMBER: str = "372217312"
+    REGISTERED_PHONE: str = "372217315"
+    REGISTERED_PHONE_COUNTRY: str = "Singapore"
     SIGNUP_TEST_MOBILE: str = "372217263"
     SIGNUP_TEST_EMAIL: str = "kieu.signup.auto@yopmail.com"
     REGISTERED_EMAIL: str = "ahko355@yopmail.com"
     OTP: str = "1234"
     COUNTRY_SEARCH: str = "Vietnam"
+    APK_PATH: str = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "Android_APK", "Eskimo_Staging_UAT_20261111_1.apk")
+    )
     APP_PACKAGE: str = "travel.eskimo.esim.uat"
     APP_ACTIVITY: str = "com.hotspot.travel.hotspot.activity.PreLoaderActivity"
     DEVICE_NAME: str = "emulator-5554"
@@ -26,6 +32,7 @@ class TestConfig:
             "platformName": cls.PLATFORM_NAME,
             "deviceName": cls.DEVICE_NAME,
             "automationName": cls.AUTOMATION_NAME,
+            "app": cls.APK_PATH,
             "appPackage": cls.APP_PACKAGE,
             "appActivity": cls.APP_ACTIVITY,
             "appWaitActivity": "*",

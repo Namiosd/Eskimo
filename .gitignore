@@ -8,8 +8,9 @@ __pycache__/
 # Node
 node_modules/
 
-# VS Code
+# VS Code / Visual Studio
 .vscode/
+.vs/
 
 # Appium / test logs
 *.log
